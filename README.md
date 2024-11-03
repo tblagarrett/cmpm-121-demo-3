@@ -1,6 +1,8 @@
 # cmpm-121-demo-3
 
-This is the default `README.md` file for the D3 projects. If the student is
-aware of what's going on in their project, they should immediately replace this
-with something more descriptive. It sure would be embarrassing if they forgot to
-do that...
+This project uses a map system from leaflet to create a mini
+geocache-esque game. In the game you can collect coins and move
+them to different caches around the world.
+
+Much help in making the code came from ChatGPT, with clarification,
+code help, and concept explanation.
