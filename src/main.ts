@@ -1,5 +1,5 @@
 // @deno-types="npm:@types/leaflet@^1.9.14"
-import leaflet from "leaflet";
+import leaflet, { LatLng } from "leaflet";
 
 // Style sheets
 import "leaflet/dist/leaflet.css";
@@ -58,7 +58,10 @@ class Cache implements Memento<string> {
     this.bounds = bounds;
   }
 
-  // Serialize the mutable state of the cache (coins array)
+  positionToString(): string {
+    return `${this.position.i},${this.position.j}`;
+  }
+
   toMemento(): string {
     const mementoData = {
       coins: this.coins.map(coin => ({
@@ -70,7 +73,6 @@ class Cache implements Memento<string> {
     return JSON.stringify(mementoData);
   }
 
-  // Restore the mutable state from a serialized string
   fromMemento(memento: string): void {
     const mementoData = JSON.parse(memento);
     this.position = mementoData.position;
@@ -144,7 +146,33 @@ playerMarker.addTo(map);
 let playerCoins: Coin[] = [];
 statusPanel.innerHTML = "No coins yet...";
 
+// Caches
+const cacheMementos: Map<string, string> = new Map();
 spawnNearbyCaches(OAKES_CLASSROOM);
+
+function movePlayer(direction: Int16Array) {
+  let currentPos: leaflet.LatLng = playerMarker.getLatLng();
+  let newPos: LatLng = leaflet.latLng(
+    currentPos.lat + TILE_DEGREES * direction[0],
+    currentPos.lng + TILE_DEGREES * direction[1]
+  );
+  playerMarker.setLatLng(newPos);
+
+  // Clear and respawn caches based on the new position
+  clearCaches();
+  spawnNearbyCaches(newPos);
+}
+
+function clearCaches() {
+  map.eachLayer((layer) => {
+    if (layer instanceof leaflet.Rectangle && (layer as any).cache) {
+      const cache = (layer as any).cache as Cache;
+      cacheMementos.set(cache.positionToString(), cache.toMemento());
+      map.removeLayer(layer);
+    }
+  });
+}
+
 
 function collect(coin: Coin, cache: Cache): void {
   const coinIndex = cache.coins.indexOf(coin);
@@ -153,6 +181,7 @@ function collect(coin: Coin, cache: Cache): void {
     playerCoins.push(coin);
     // Remove coin from cache
     cache.coins.splice(coinIndex, 1);
+    cacheMementos.set(cache.positionToString(), cache.toMemento());
     statusPanel.innerHTML = `${playerCoins.length} coins accumulated`;
 
     // Log collected coin information
@@ -167,6 +196,7 @@ function deposit(coin: Coin, cache: Cache): void {
     playerCoins.splice(coinIndex, 1);
     // Add coin back to cache
     cache.coins.push(coin);
+    cacheMementos.set(cache.positionToString(), cache.toMemento());
     statusPanel.innerHTML = `${playerCoins.length} coins accumulated`;
 
     // Log deposited coin information
@@ -174,7 +204,7 @@ function deposit(coin: Coin, cache: Cache): void {
   }
 }
 
-function addControlButtons(buttons) {
+function addControlButtons(buttons: controlButton[]) {
   const controlPanel: HTMLDivElement = document.createElement("div");
   controlPanel.id = "controlPanel";
 
@@ -183,11 +213,35 @@ function addControlButtons(buttons) {
     btn.id = button.name;
     btn.title = button.name;
     btn.textContent = button.text;
+    
+    // Assign movement directions based on button name
+    let direction: Int16Array | null = null;
+    switch (button.name) {
+      case "north":
+        direction = new Int16Array([1, 0]);
+        break;
+      case "south":
+        direction = new Int16Array([-1, 0]);
+        break;
+      case "east":
+        direction = new Int16Array([0, 1]);
+        break;
+      case "west":
+        direction = new Int16Array([0, -1]);
+        break;
+    }
+
+    // Add event listener to move player if a direction is assigned
+    if (direction) {
+      btn.addEventListener("click", () => movePlayer(direction));
+    }
+
     controlPanel.appendChild(btn);
   });
 
   app.appendChild(controlPanel);
 }
+
 
 function spawnNearbyCaches(center: leaflet.LatLng) {
   // Convert the center location to grid coordinates
@@ -205,12 +259,11 @@ function spawnNearbyCaches(center: leaflet.LatLng) {
   }
 }
 
-
 function spawnCache(i: number, j: number): Cache {
   const cell = CellFactory.getCell(i, j); // Retrieve cell instance
+  const positionKey = `${i},${j}`;
   const lat = i * TILE_DEGREES;
   const lng = j * TILE_DEGREES;
-
   const bounds = leaflet.latLngBounds([
     [lat, lng],
     [lat + TILE_DEGREES, lng + TILE_DEGREES],
@@ -219,19 +272,31 @@ function spawnCache(i: number, j: number): Cache {
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
+  // Create a new Cache object
   const cache = new Cache(cell, bounds);
 
-  const initialCoins = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
-  for (let serial = 0; serial < initialCoins; serial++) {
-    const coin: Coin = {
-      cell: cell,
-      serial: serial,
-      toString() {
-        return `${this.cell.i}:${this.cell.j}#${this.serial}`;
-      },
-    };
-    cache.coins.push(coin);
+  // Check if a memento exists for this position
+  const memento = cacheMementos.get(positionKey);
+  if (memento) {
+    // If a memento exists, restore the cache state from the memento
+    cache.fromMemento(memento);
+  } else {
+    // Otherwise, initialize the cache with a default number of coins
+    const initialCoins = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
+    for (let serial = 0; serial < initialCoins; serial++) {
+      const coin: Coin = {
+        cell: cell,
+        serial: serial,
+        toString() {
+          return `${this.cell.i}:${this.cell.j}#${this.serial}`;
+        },
+      };
+      cache.coins.push(coin);
+    }
   }
+
+  // Store a reference to the cache object directly on the Rectangle layer
+  (rect as any).cache = cache;
 
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
