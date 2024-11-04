@@ -42,10 +42,46 @@ interface Cell {
   j: number;
 }
 
-interface Cache {
+interface Memento<T> {
+  toMemento(): T;
+  fromMemento(memento: T): void;
+}
+
+class Cache implements Memento<string> {
   coins: Coin[];
   position: Cell;
   bounds: leaflet.LatLngBounds;
+
+  constructor(position: Cell, bounds: leaflet.LatLngBounds) {
+    this.coins = [];
+    this.position = position;
+    this.bounds = bounds;
+  }
+
+  // Serialize the mutable state of the cache (coins array)
+  toMemento(): string {
+    const mementoData = {
+      coins: this.coins.map(coin => ({
+        cell: coin.cell,
+        serial: coin.serial,
+      })),
+      position: this.position,
+    };
+    return JSON.stringify(mementoData);
+  }
+
+  // Restore the mutable state from a serialized string
+  fromMemento(memento: string): void {
+    const mementoData = JSON.parse(memento);
+    this.position = mementoData.position;
+    this.coins = mementoData.coins.map((coinData: any) => ({
+      cell: coinData.cell,
+      serial: coinData.serial,
+      toString() {
+        return `${this.cell.i}:${this.cell.j}#${this.serial}`;
+      },
+    }));
+  }
 }
 
 interface Coin {
@@ -183,11 +219,7 @@ function spawnCache(i: number, j: number): Cache {
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
-  const cache: Cache = {
-    coins: [],
-    position: cell,
-    bounds: bounds,
-  };
+  const cache = new Cache(cell, bounds);
 
   const initialCoins = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
   for (let serial = 0; serial < initialCoins; serial++) {
