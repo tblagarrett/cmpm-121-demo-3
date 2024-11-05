@@ -11,6 +11,53 @@ import "./leafletWorkaround.ts";
 // Deterministic random number generator
 import luck from "./luck.ts";
 
+class Player {
+  private position: LatLng;
+  private marker: leaflet.Marker;
+
+  constructor(initialPosition: LatLng, map: leaflet.Map) {
+    this.position = initialPosition;
+    this.marker = leaflet.marker(this.position).addTo(map);
+    this.marker.bindTooltip("You");
+  }
+
+  move(direction: Int16Array) {
+    this.position = leaflet.latLng(
+      this.position.lat + TILE_DEGREES * direction[0],
+      this.position.lng + TILE_DEGREES * direction[1],
+    );
+    this.marker.setLatLng(this.position);
+  }
+
+  getPosition(): LatLng {
+    return this.position;
+  }
+}
+
+class MovementHistory {
+  private polyline: leaflet.Polyline;
+  private positions: LatLng[];
+
+  constructor(map: leaflet.Map, startPosition: LatLng) {
+    this.positions = [startPosition];
+    this.polyline = leaflet.polyline(this.positions, {
+      color: "orange",
+      weight: 3,
+    }).addTo(map);
+  }
+
+  addPosition(position: LatLng): void {
+    this.positions.push(position);
+    this.polyline.setLatLngs(this.positions);
+  }
+
+  clear(startPosition: LatLng): void {
+    this.positions = [startPosition];
+    this.polyline.setLatLngs(this.positions);
+    this.polyline.redraw();
+  }
+}
+
 // Flyweight pattern: Cell Factory to manage cell instances
 class CellFactory {
   private static cellCache: Map<string, Cell> = new Map();
@@ -32,21 +79,6 @@ class CellFactory {
   }
 }
 
-interface controlButton {
-  name: string,
-  text: string,
-}
-
-interface Cell {
-  i: number;
-  j: number;
-}
-
-interface Memento<T> {
-  toMemento(): T;
-  fromMemento(memento: T): void;
-}
-
 class Cache implements Memento<string> {
   coins: Coin[];
   position: Cell;
@@ -64,7 +96,7 @@ class Cache implements Memento<string> {
 
   toMemento(): string {
     const mementoData = {
-      coins: this.coins.map(coin => ({
+      coins: this.coins.map((coin) => ({
         cell: coin.cell,
         serial: coin.serial,
       })),
@@ -76,7 +108,7 @@ class Cache implements Memento<string> {
   fromMemento(memento: string): void {
     const mementoData = JSON.parse(memento);
     this.position = mementoData.position;
-    this.coins = mementoData.coins.map((coinData: any) => ({
+    this.coins = mementoData.coins.map((coinData: CoinData) => ({
       cell: coinData.cell,
       serial: coinData.serial,
       toString() {
@@ -86,23 +118,39 @@ class Cache implements Memento<string> {
   }
 }
 
+interface controlButton {
+  name: string;
+  text: string;
+}
+
+interface Cell {
+  i: number;
+  j: number;
+}
+
+interface Memento<T> {
+  toMemento(): T;
+  fromMemento(memento: T): void;
+}
+
 interface Coin {
   cell: Cell;
   serial: number;
   toString(): string;
 }
 
+interface CoinData {
+  cell: Cell;
+  serial: number;
+}
+
+type CacheLayer = leaflet.Rectangle & { cache: Cache };
+
 const app: HTMLDivElement = document.querySelector("#app")!;
 
-const controlButtons: controlButton[] = [
-  { name: "sensor", text: "🌐" },
-  { name: "north", text: "⬆️" },
-  { name: "south", text: "⬇️" },
-  { name: "west", text: "⬅️" },
-  { name: "east", text: "➡️" },
-  { name: "reset", text: "🚮" },
-];
-addControlButtons(controlButtons);
+const controlPanel: HTMLDivElement = document.createElement("div");
+controlPanel.id = "controlPanel";
+app.appendChild(controlPanel);
 
 const statusPanel: HTMLDivElement = document.createElement("div");
 statusPanel.id = "statusPanel";
@@ -130,49 +178,54 @@ const map = leaflet.map(document.getElementById("map")!, {
   zoomControl: false,
   scrollWheelZoom: false,
 });
+const player = new Player(OAKES_CLASSROOM, map);
+const movementHistory = new MovementHistory(map, player.getPosition());
+
+const controlButtons: controlButton[] = [
+  { name: "sensor", text: "🌐" },
+  { name: "north", text: "⬆️" },
+  { name: "south", text: "⬇️" },
+  { name: "west", text: "⬅️" },
+  { name: "east", text: "➡️" },
+  { name: "reset", text: "🚮" },
+];
+addControlButtons(controlButtons);
 
 // Background tile layer
 leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   maxZoom: 19,
-  attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  attribution:
+    '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
 }).addTo(map);
-
-// Player marker
-const playerMarker = leaflet.marker(OAKES_CLASSROOM);
-playerMarker.bindTooltip("You");
-playerMarker.addTo(map);
 
 // Player's coin inventory
 let playerCoins: Coin[] = [];
 statusPanel.innerHTML = "No coins yet...";
 
 // Caches
+const existingRectangles: Map<string, leaflet.Rectangle> = new Map();
 const cacheMementos: Map<string, string> = new Map();
 spawnNearbyCaches(OAKES_CLASSROOM);
 
 function movePlayer(direction: Int16Array) {
-  let currentPos: leaflet.LatLng = playerMarker.getLatLng();
-  let newPos: LatLng = leaflet.latLng(
-    currentPos.lat + TILE_DEGREES * direction[0],
-    currentPos.lng + TILE_DEGREES * direction[1]
-  );
-  playerMarker.setLatLng(newPos);
+  player.move(direction);
+  movementHistory.addPosition(player.getPosition());
 
-  // Clear and respawn caches based on the new position
   clearCaches();
-  spawnNearbyCaches(newPos);
+  spawnNearbyCaches(player.getPosition());
 }
 
 function clearCaches() {
   map.eachLayer((layer) => {
-    if (layer instanceof leaflet.Rectangle && (layer as any).cache) {
-      const cache = (layer as any).cache as Cache;
+    if (layer instanceof leaflet.Rectangle && (layer as CacheLayer).cache) {
+      const cache = (layer as CacheLayer).cache as Cache;
       cacheMementos.set(cache.positionToString(), cache.toMemento());
       map.removeLayer(layer);
     }
   });
-}
 
+  existingRectangles.clear();
+}
 
 function collect(coin: Coin, cache: Cache): void {
   const coinIndex = cache.coins.indexOf(coin);
@@ -205,15 +258,12 @@ function deposit(coin: Coin, cache: Cache): void {
 }
 
 function addControlButtons(buttons: controlButton[]) {
-  const controlPanel: HTMLDivElement = document.createElement("div");
-  controlPanel.id = "controlPanel";
-
-  buttons.forEach(button => {
+  buttons.forEach((button) => {
     const btn = document.createElement("button");
     btn.id = button.name;
     btn.title = button.name;
     btn.textContent = button.text;
-    
+
     // Assign movement directions based on button name
     let direction: Int16Array | null = null;
     switch (button.name) {
@@ -229,6 +279,29 @@ function addControlButtons(buttons: controlButton[]) {
       case "west":
         direction = new Int16Array([0, -1]);
         break;
+      case "reset":
+        btn.addEventListener("click", () => {
+          // Clear mementos
+          cacheMementos.clear();
+
+          // Clear all cache layers
+          map.eachLayer((layer) => {
+            if (
+              layer instanceof leaflet.Rectangle && (layer as CacheLayer).cache
+            ) {
+              map.removeLayer(layer);
+            }
+          });
+
+          // Clear movement history and player coins
+          movementHistory.clear(player.getPosition());
+          playerCoins = [];
+          statusPanel.innerHTML = "No coins yet...";
+
+          // Regenerate caches around the player's current position
+          spawnNearbyCaches(player.getPosition());
+        });
+        break;
     }
 
     // Add event listener to move player if a direction is assigned
@@ -238,10 +311,7 @@ function addControlButtons(buttons: controlButton[]) {
 
     controlPanel.appendChild(btn);
   });
-
-  app.appendChild(controlPanel);
 }
-
 
 function spawnNearbyCaches(center: leaflet.LatLng) {
   // Convert the center location to grid coordinates
@@ -269,6 +339,16 @@ function spawnCache(i: number, j: number): Cache {
     [lat + TILE_DEGREES, lng + TILE_DEGREES],
   ]);
 
+  // Check if a rectangle already exists for this position
+  if (existingRectangles.has(positionKey)) {
+    const cache = new Cache(cell, bounds);
+    const memento = cacheMementos.get(positionKey);
+    if (memento) {
+      cache.fromMemento(memento);
+      return cache;
+    }
+  }
+
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
@@ -282,7 +362,9 @@ function spawnCache(i: number, j: number): Cache {
     cache.fromMemento(memento);
   } else {
     // Otherwise, initialize the cache with a default number of coins
-    const initialCoins = Math.floor(luck([i, j, "initialValue"].toString()) * 100);
+    const initialCoins = Math.floor(
+      luck([i, j, "initialValue"].toString()) * 100,
+    );
     for (let serial = 0; serial < initialCoins; serial++) {
       const coin: Coin = {
         cell: cell,
@@ -296,8 +378,9 @@ function spawnCache(i: number, j: number): Cache {
   }
 
   // Store a reference to the cache object directly on the Rectangle layer
-  (rect as any).cache = cache;
+  (rect as CacheLayer).cache = cache;
 
+  // Bind popup and actions
   rect.bindPopup(() => {
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
@@ -305,24 +388,35 @@ function spawnCache(i: number, j: number): Cache {
       <button id="take">take</button>
       <button id="give">give</button>`;
 
-    popupDiv.querySelector<HTMLButtonElement>("#take")!.addEventListener("click", () => {
-      if (cache.coins.length > 0) {
-        const coin = cache.coins[cache.coins.length - 1];
-        collect(coin, cache);
-        popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = cache.coins.length.toString();
-      }
-    });
+    popupDiv.querySelector<HTMLButtonElement>("#take")!.addEventListener(
+      "click",
+      () => {
+        if (cache.coins.length > 0) {
+          const coin = cache.coins[cache.coins.length - 1];
+          collect(coin, cache);
+          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = cache
+            .coins.length.toString();
+        }
+      },
+    );
 
-    popupDiv.querySelector<HTMLButtonElement>("#give")!.addEventListener("click", () => {
-      if (playerCoins.length > 0) {
-        const coin = playerCoins[playerCoins.length - 1];
-        deposit(coin, cache);
-        popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = cache.coins.length.toString();
-      }
-    });
+    popupDiv.querySelector<HTMLButtonElement>("#give")!.addEventListener(
+      "click",
+      () => {
+        if (playerCoins.length > 0) {
+          const coin = playerCoins[playerCoins.length - 1];
+          deposit(coin, cache);
+          popupDiv.querySelector<HTMLSpanElement>("#value")!.innerHTML = cache
+            .coins.length.toString();
+        }
+      },
+    );
 
     return popupDiv;
   });
+
+  // Store the rectangle in the map to avoid duplicates
+  existingRectangles.set(positionKey, rect);
 
   return cache;
 }

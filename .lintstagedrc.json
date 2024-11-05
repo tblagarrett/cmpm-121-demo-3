@@ -1,6 +1,6 @@
 {
-    "src/*": [
-        "deno lint",
-        "deno fmt"
-    ]
+  "src/*": [
+    "deno lint",
+    "deno fmt"
+  ]
 }
