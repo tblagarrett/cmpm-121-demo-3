@@ -22,7 +22,7 @@ class Player {
   }
 
   move(newPosition: LatLng) {
-    this.position = newPosition
+    this.position = newPosition;
     this.marker.setLatLng(this.position);
   }
 
@@ -158,7 +158,6 @@ coinDropdown.id = "coinDropdown";
 coinDropdown.innerHTML = "<option>No coins yet...</option>";
 statusPanel.appendChild(coinDropdown);
 
-
 const mapElement: HTMLDivElement = document.createElement("div");
 mapElement.id = "map";
 app.appendChild(mapElement);
@@ -193,7 +192,10 @@ const controlButtons: controlButton[] = [
   { name: "reset", text: "🚮" },
 ];
 addControlButtons(controlButtons);
-document.getElementById("sensor")!.addEventListener("click", toggleGeolocationTracking);
+document.getElementById("sensor")!.addEventListener(
+  "click",
+  toggleGeolocationTracking,
+);
 
 // Background tile layer
 leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -216,7 +218,10 @@ function toggleGeolocationTracking() {
   if (geolocationWatchId === null) {
     // Start geolocation tracking
     geolocationWatchId = navigator.geolocation.watchPosition((position) => {
-      const newLocation = leaflet.latLng(position.coords.latitude, position.coords.longitude);
+      const newLocation = leaflet.latLng(
+        position.coords.latitude,
+        position.coords.longitude,
+      );
       movePlayer(newLocation);
       map.setView(player.getPosition(), GAMEPLAY_ZOOM_LEVEL);
     });
@@ -228,7 +233,6 @@ function toggleGeolocationTracking() {
   }
 }
 
-
 function movePlayer(newPosition: LatLng) {
   player.move(newPosition);
   movementHistory.addPosition(newPosition);
@@ -237,14 +241,15 @@ function movePlayer(newPosition: LatLng) {
   spawnNearbyCaches(newPosition);
 }
 
-
-function calculateNewPosition(currentPosition: LatLng, direction: Int16Array): LatLng {
+function calculateNewPosition(
+  currentPosition: LatLng,
+  direction: Int16Array,
+): LatLng {
   return leaflet.latLng(
     currentPosition.lat + TILE_DEGREES * direction[0],
-    currentPosition.lng + TILE_DEGREES * direction[1]
+    currentPosition.lng + TILE_DEGREES * direction[1],
   );
 }
-
 
 function clearCaches() {
   map.eachLayer((layer) => {
@@ -290,7 +295,6 @@ function deposit(coin: Coin, cache: Cache): void {
   }
 }
 
-
 function updateCoinDropdown(): void {
   // Clear the existing options
   coinDropdown.innerHTML = "";
@@ -330,9 +334,6 @@ function updateCoinDropdown(): void {
   }
 }
 
-
-
-
 function addControlButtons(buttons: controlButton[]) {
   buttons.forEach((button) => {
     const btn = document.createElement("button");
@@ -355,37 +356,48 @@ function addControlButtons(buttons: controlButton[]) {
       case "west":
         direction = new Int16Array([0, -1]);
         break;
-        case "reset":
-          btn.addEventListener("click", () => {
-            // Prompt the user for confirmation
-            const confirmation = prompt("Are you sure you want to erase your game state? (yes/no)");
-            if (confirmation && (confirmation.toLowerCase() === "yes" || confirmation.toLowerCase() === "y")) {
-              // Clear mementos
-              cacheMementos.clear();
-        
-              // Clear all cache layers
-              map.eachLayer((layer) => {
-                if (layer instanceof leaflet.Rectangle && (layer as CacheLayer).cache) {
-                  map.removeLayer(layer);
-                }
-              });
-        
-              // Clear movement history and player coins
-              movementHistory.clear(player.getPosition());
-              playerCoins = [];
-              updateCoinDropdown()
-        
-              // Regenerate caches around the player's current position
-              spawnNearbyCaches(player.getPosition());
-            }
-          });
-          break;
-        
+      case "reset":
+        btn.addEventListener("click", () => {
+          // Prompt the user for confirmation
+          const confirmation = prompt(
+            "Are you sure you want to erase your game state? (yes/no)",
+          );
+          if (
+            confirmation &&
+            (confirmation.toLowerCase() === "yes" ||
+              confirmation.toLowerCase() === "y")
+          ) {
+            // Clear mementos
+            cacheMementos.clear();
+
+            // Clear all cache layers
+            map.eachLayer((layer) => {
+              if (
+                layer instanceof leaflet.Rectangle &&
+                (layer as CacheLayer).cache
+              ) {
+                map.removeLayer(layer);
+              }
+            });
+
+            // Clear movement history and player coins
+            movementHistory.clear(player.getPosition());
+            playerCoins = [];
+            updateCoinDropdown();
+
+            // Regenerate caches around the player's current position
+            spawnNearbyCaches(player.getPosition());
+          }
+        });
+        break;
     }
 
     // Add event listener to move player if a direction is assigned
     if (direction) {
-      btn.addEventListener("click", () => movePlayer(calculateNewPosition(player.getPosition(), direction)));
+      btn.addEventListener(
+        "click",
+        () => movePlayer(calculateNewPosition(player.getPosition(), direction)),
+      );
     }
 
     controlPanel.appendChild(btn);
