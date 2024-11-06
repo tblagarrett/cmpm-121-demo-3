@@ -21,11 +21,8 @@ class Player {
     this.marker.bindTooltip("You");
   }
 
-  move(direction: Int16Array) {
-    this.position = leaflet.latLng(
-      this.position.lat + TILE_DEGREES * direction[0],
-      this.position.lng + TILE_DEGREES * direction[1],
-    );
+  move(newPosition: LatLng) {
+    this.position = newPosition
     this.marker.setLatLng(this.position);
   }
 
@@ -196,6 +193,7 @@ const controlButtons: controlButton[] = [
   { name: "reset", text: "🚮" },
 ];
 addControlButtons(controlButtons);
+document.getElementById("sensor")!.addEventListener("click", toggleGeolocationTracking);
 
 // Background tile layer
 leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -212,13 +210,41 @@ const existingRectangles: Map<string, leaflet.Rectangle> = new Map();
 const cacheMementos: Map<string, string> = new Map();
 spawnNearbyCaches(OAKES_CLASSROOM);
 
-function movePlayer(direction: Int16Array) {
-  player.move(direction);
-  movementHistory.addPosition(player.getPosition());
+let geolocationWatchId: number | null = null;
+
+function toggleGeolocationTracking() {
+  if (geolocationWatchId === null) {
+    // Start geolocation tracking
+    geolocationWatchId = navigator.geolocation.watchPosition((position) => {
+      const newLocation = leaflet.latLng(position.coords.latitude, position.coords.longitude);
+      movePlayer(newLocation);
+      map.setView(player.getPosition(), GAMEPLAY_ZOOM_LEVEL);
+    });
+    movementHistory.clear(player.getPosition());
+  } else {
+    // Stop geolocation tracking
+    navigator.geolocation.clearWatch(geolocationWatchId);
+    geolocationWatchId = null;
+  }
+}
+
+
+function movePlayer(newPosition: LatLng) {
+  player.move(newPosition);
+  movementHistory.addPosition(newPosition);
 
   clearCaches();
-  spawnNearbyCaches(player.getPosition());
+  spawnNearbyCaches(newPosition);
 }
+
+
+function calculateNewPosition(currentPosition: LatLng, direction: Int16Array): LatLng {
+  return leaflet.latLng(
+    currentPosition.lat + TILE_DEGREES * direction[0],
+    currentPosition.lng + TILE_DEGREES * direction[1]
+  );
+}
+
 
 function clearCaches() {
   map.eachLayer((layer) => {
@@ -359,7 +385,7 @@ function addControlButtons(buttons: controlButton[]) {
 
     // Add event listener to move player if a direction is assigned
     if (direction) {
-      btn.addEventListener("click", () => movePlayer(direction));
+      btn.addEventListener("click", () => movePlayer(calculateNewPosition(player.getPosition(), direction)));
     }
 
     controlPanel.appendChild(btn);
