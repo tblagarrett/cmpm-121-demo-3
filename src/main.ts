@@ -279,29 +279,32 @@ function addControlButtons(buttons: controlButton[]) {
       case "west":
         direction = new Int16Array([0, -1]);
         break;
-      case "reset":
-        btn.addEventListener("click", () => {
-          // Clear mementos
-          cacheMementos.clear();
-
-          // Clear all cache layers
-          map.eachLayer((layer) => {
-            if (
-              layer instanceof leaflet.Rectangle && (layer as CacheLayer).cache
-            ) {
-              map.removeLayer(layer);
+        case "reset":
+          btn.addEventListener("click", () => {
+            // Prompt the user for confirmation
+            const confirmation = prompt("Are you sure you want to erase your game state? (yes/no)");
+            if (confirmation && (confirmation.toLowerCase() === "yes" || confirmation.toLowerCase() === "y")) {
+              // Clear mementos
+              cacheMementos.clear();
+        
+              // Clear all cache layers
+              map.eachLayer((layer) => {
+                if (layer instanceof leaflet.Rectangle && (layer as CacheLayer).cache) {
+                  map.removeLayer(layer);
+                }
+              });
+        
+              // Clear movement history and player coins
+              movementHistory.clear(player.getPosition());
+              playerCoins = [];
+              statusPanel.innerHTML = "No coins yet...";
+        
+              // Regenerate caches around the player's current position
+              spawnNearbyCaches(player.getPosition());
             }
           });
-
-          // Clear movement history and player coins
-          movementHistory.clear(player.getPosition());
-          playerCoins = [];
-          statusPanel.innerHTML = "No coins yet...";
-
-          // Regenerate caches around the player's current position
-          spawnNearbyCaches(player.getPosition());
-        });
-        break;
+          break;
+        
     }
 
     // Add event listener to move player if a direction is assigned
