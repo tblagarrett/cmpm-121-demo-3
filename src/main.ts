@@ -33,7 +33,7 @@ class Player {
 
 class MovementHistory {
   private polyline: leaflet.Polyline;
-  private positions: LatLng[];
+  public positions: LatLng[];
 
   constructor(map: leaflet.Map, startPosition: LatLng) {
     this.positions = [startPosition];
@@ -214,6 +214,15 @@ spawnNearbyCaches(OAKES_CLASSROOM);
 
 let geolocationWatchId: number | null = null;
 
+// Call this on game startup
+initializeGameState();
+
+self.addEventListener("beforeunload", () => {
+  savePlayerState(player, movementHistory);
+  playerCoins.forEach(savePlayerCoins);
+  existingRectangles.forEach((rect) => saveCache((rect as CacheLayer).cache));
+});
+
 function toggleGeolocationTracking() {
   if (geolocationWatchId === null) {
     // Start geolocation tracking
@@ -367,6 +376,8 @@ function addControlButtons(buttons: controlButton[]) {
             (confirmation.toLowerCase() === "yes" ||
               confirmation.toLowerCase() === "y")
           ) {
+            localStorage.clear();
+
             // Clear mementos
             cacheMementos.clear();
 
@@ -510,4 +521,104 @@ function spawnCache(i: number, j: number): Cache {
   existingRectangles.set(positionKey, rect);
 
   return cache;
+}
+
+function savePlayerState(
+  player: Player,
+  movementHistory: MovementHistory,
+): void {
+  const playerData = {
+    position: player.getPosition(),
+    history: movementHistory.positions,
+  };
+  localStorage.setItem("playerState", JSON.stringify(playerData));
+}
+
+function loadPlayerState(): { position: LatLng; history: LatLng[] } | null {
+  const data = localStorage.getItem("playerState");
+  if (data) {
+    const playerData = JSON.parse(data);
+    return {
+      position: leaflet.latLng(
+        playerData.position.lat,
+        playerData.position.lng,
+      ),
+      history: playerData.history.map((pos: LatLng) =>
+        leaflet.latLng(pos.lat, pos.lng)
+      ),
+    };
+  }
+  return null;
+}
+
+function saveCache(cache: Cache): void {
+  localStorage.setItem(`cache_${cache.positionToString()}`, cache.toMemento());
+}
+
+function loadCaches(): Cache[] {
+  const caches: Cache[] = [];
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith("cache_")) {
+      const memento = localStorage.getItem(key)!;
+      const positionParts = key.split("_")[1].split(",");
+      const cell = CellFactory.getCell(
+        parseInt(positionParts[0]),
+        parseInt(positionParts[1]),
+      );
+      const bounds = leaflet.latLngBounds([
+        [cell.i * TILE_DEGREES, cell.j * TILE_DEGREES],
+        [(cell.i + 1) * TILE_DEGREES, (cell.j + 1) * TILE_DEGREES],
+      ]);
+      const cache = new Cache(cell, bounds);
+      cache.fromMemento(memento);
+      caches.push(cache);
+    }
+  });
+  return caches;
+}
+
+function savePlayerCoins(): void {
+  const coinData = playerCoins.map((coin) => coin.toString());
+  localStorage.setItem("playerCoins", JSON.stringify(coinData));
+}
+
+function loadPlayerCoins(): Coin[] {
+  const data = localStorage.getItem("playerCoins");
+  if (data) {
+    return JSON.parse(data).map((coinStr: string) => {
+      const [cellStr, serial] = coinStr.split("#");
+      const [i, j] = cellStr.split(":").map(Number);
+      const cell = CellFactory.getCell(i, j);
+      return {
+        cell,
+        serial: parseInt(serial),
+        toString() {
+          return coinStr;
+        },
+      };
+    });
+  }
+  return [];
+}
+
+function initializeGameState() {
+  // Load player state
+  const playerData = loadPlayerState();
+  if (playerData) {
+    player.move(playerData.position);
+    movementHistory.clear(playerData.position);
+    playerData.history.forEach((pos) => movementHistory.addPosition(pos));
+  }
+
+  // Load caches
+  const savedCaches = loadCaches();
+  savedCaches.forEach((cache) => {
+    spawnCache(cache.position.i, cache.position.j);
+  });
+
+  // Load player coins
+  playerCoins = loadPlayerCoins();
+  updateCoinDropdown();
+
+  map.setView(player.getPosition(), GAMEPLAY_ZOOM_LEVEL);
 }
