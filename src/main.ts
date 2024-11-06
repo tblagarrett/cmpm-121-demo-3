@@ -156,6 +156,12 @@ const statusPanel: HTMLDivElement = document.createElement("div");
 statusPanel.id = "statusPanel";
 app.appendChild(statusPanel);
 
+const coinDropdown = document.createElement("select");
+coinDropdown.id = "coinDropdown";
+coinDropdown.innerHTML = "<option>No coins yet...</option>";
+statusPanel.appendChild(coinDropdown);
+
+
 const mapElement: HTMLDivElement = document.createElement("div");
 mapElement.id = "map";
 app.appendChild(mapElement);
@@ -200,7 +206,6 @@ leaflet.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 
 // Player's coin inventory
 let playerCoins: Coin[] = [];
-statusPanel.innerHTML = "No coins yet...";
 
 // Caches
 const existingRectangles: Map<string, leaflet.Rectangle> = new Map();
@@ -232,10 +237,11 @@ function collect(coin: Coin, cache: Cache): void {
   if (coinIndex >= 0) {
     // Add coin to player's inventory
     playerCoins.push(coin);
+    updateCoinDropdown();
+
     // Remove coin from cache
     cache.coins.splice(coinIndex, 1);
     cacheMementos.set(cache.positionToString(), cache.toMemento());
-    statusPanel.innerHTML = `${playerCoins.length} coins accumulated`;
 
     // Log collected coin information
     console.log(`Collected coin: ${coin.toString()}`);
@@ -247,15 +253,59 @@ function deposit(coin: Coin, cache: Cache): void {
   if (coinIndex >= 0) {
     // Remove coin from player's inventory
     playerCoins.splice(coinIndex, 1);
+    updateCoinDropdown();
+
     // Add coin back to cache
     cache.coins.push(coin);
     cacheMementos.set(cache.positionToString(), cache.toMemento());
-    statusPanel.innerHTML = `${playerCoins.length} coins accumulated`;
 
     // Log deposited coin information
     console.log(`Deposited coin: ${coin.toString()}`);
   }
 }
+
+
+function updateCoinDropdown(): void {
+  // Clear the existing options
+  coinDropdown.innerHTML = "";
+
+  if (playerCoins.length > 0) {
+    // Set the first option to display the coin count
+    const coinCountOption = document.createElement("option");
+    coinCountOption.text = `${playerCoins.length} coins accumulated`;
+    coinDropdown.add(coinCountOption);
+
+    // Add each coin to the dropdown as selectable options
+    playerCoins.forEach((coin, index) => {
+      const option = document.createElement("option");
+      option.text = coin.toString();
+      option.value = index.toString(); // Store index as value to easily access coin later
+      coinDropdown.add(option);
+    });
+
+    // Add an event listener to detect changes in the dropdown selection
+    coinDropdown.addEventListener("change", () => {
+      const selectedIndex = coinDropdown.selectedIndex - 1; // Adjust index (skip first option)
+      if (selectedIndex >= 0) {
+        const selectedCoin = playerCoins[selectedIndex];
+        const coinCachePosition = selectedCoin.cell;
+        const lat = coinCachePosition.i * TILE_DEGREES;
+        const lng = coinCachePosition.j * TILE_DEGREES;
+
+        // Center the map on the coin's home cache location
+        map.setView([lat, lng], GAMEPLAY_ZOOM_LEVEL);
+      }
+    });
+  } else {
+    // Show "No coins yet..." if there are no coins
+    const noCoinsOption = document.createElement("option");
+    noCoinsOption.text = "No coins yet...";
+    coinDropdown.add(noCoinsOption);
+  }
+}
+
+
+
 
 function addControlButtons(buttons: controlButton[]) {
   buttons.forEach((button) => {
@@ -297,7 +347,7 @@ function addControlButtons(buttons: controlButton[]) {
               // Clear movement history and player coins
               movementHistory.clear(player.getPosition());
               playerCoins = [];
-              statusPanel.innerHTML = "No coins yet...";
+              updateCoinDropdown()
         
               // Regenerate caches around the player's current position
               spawnNearbyCaches(player.getPosition());
